@@ -1,0 +1,26 @@
+<idea-plugin>
+    <id>com.github.alexeyleping.intellij-debug-mcp</id>
+    <name>IntelliJ Debug MCP</name>
+    <vendor>alexeyleping</vendor>
+
+    <description>
+        Exposes IntelliJ XDebugger API as an MCP server so that Claude Code can
+        set breakpoints, control execution, and inspect variables.
+    </description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Сервис уровня проекта — поднимает MCP-сервер при открытии проекта -->
+        <projectService
+            serviceInterface="com.github.alexeyleping.intellijdebugmcp.services.McpServerService"
+            serviceImplementation="com.github.alexeyleping.intellijdebugmcp.services.McpServerServiceImpl"/>
+    </extensions>
+
+    <applicationListeners>
+        <listener
+            class="com.github.alexeyleping.intellijdebugmcp.listeners.ProjectOpenListener"
+            topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    </applicationListeners>
+</idea-plugin>
