@@ -2,10 +2,12 @@ package com.github.alexeyleping.intellijdebugmcp.server
 
 import com.github.alexeyleping.intellijdebugmcp.tools.build.BuildToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.debug.DebugToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.tests.TestToolHandler
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
@@ -16,18 +18,38 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
+import java.util.concurrent.atomic.AtomicReference
 
-@Service(Service.Level.PROJECT)
-class McpServerServiceImpl(private val project: Project) : McpServerService, Disposable {
+@Service(Service.Level.APP)
+class McpServerServiceImpl : McpServerService, Disposable {
 
     private val log = logger<McpServerServiceImpl>()
     private val port = 63820
     private var server: ApplicationEngine? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val activeProject = AtomicReference<Project?>(null)
+
+    private fun resolveProject(): Project? {
+        val current = activeProject.get()
+        if (current != null && !current.isDisposed) return current
+        return ProjectManager.getInstance().openProjects.firstOrNull { !it.isDisposed }
+    }
+
+    override fun setActiveProject(project: Project) {
+        activeProject.set(project)
+        log.info("Active project set to: ${project.name}")
+    }
+
+    override fun clearActiveProject(project: Project) {
+        activeProject.compareAndSet(project, null)
+        val fallback = ProjectManager.getInstance().openProjects.firstOrNull { it != project && !it.isDisposed }
+        if (fallback != null) activeProject.set(fallback)
+        log.info("Active project cleared for: ${project.name}, fallback: ${fallback?.name}")
+    }
 
     override fun start() {
         if (server != null) return
-        log.info("Starting MCP server on port $port for project: ${project.name}")
+        log.info("Starting MCP server on port $port")
 
         server = embeddedServer(Netty, port = port) {
             routing {
@@ -37,7 +59,8 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                     call.respondText(response, contentType = io.ktor.http.ContentType.Application.Json)
                 }
                 get("/health") {
-                    call.respondText("OK")
+                    val project = resolveProject()
+                    call.respondText("OK — active project: ${project?.name ?: "none"}")
                 }
             }
         }
@@ -69,7 +92,7 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                     put("protocolVersion", "2024-11-05")
                     put("serverInfo", buildJsonObject {
                         put("name", "intellij-debug-mcp")
-                        put("version", "0.2.0")
+                        put("version", "0.4.0")
                     })
                     put("capabilities", buildJsonObject {
                         put("tools", buildJsonObject {})
@@ -100,6 +123,14 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                         add(toolDef("list_run_configs", "List all run configurations in the project", emptyMap()))
                         add(toolDef("start_debug", "Start a debug session for the given run configuration name",
                             mapOf("name" to "string")))
+                        // Test tools
+                        add(toolDef("run_tests",
+                            "Run tests for the given class (and optionally a single method). Uses existing JUnit/TestNG run config.",
+                            mapOf("className" to "string"),
+                            mapOf("methodName" to "string")))
+                        add(toolDef("get_test_results",
+                            "Return results of the last run_tests call",
+                            emptyMap()))
                         // Build tools
                         add(toolDef("build_project",
                             "Build the project (incremental Make). Pass rebuild=true for a full Rebuild.",
@@ -114,7 +145,11 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                     val params = request["params"]?.jsonObject
                     val toolName = params?.get("name")?.jsonPrimitive?.content ?: ""
                     val toolArgs = params?.get("arguments")?.jsonObject ?: JsonObject(emptyMap())
+                    val project = resolveProject()
+                        ?: return buildError(id, -32603, "No open project found in IntelliJ")
                     val result = when (toolName) {
+                        "run_tests", "get_test_results" ->
+                            TestToolHandler(project).handle(toolName, toolArgs)
                         "build_project", "get_build_errors" ->
                             BuildToolHandler(project).handle(toolName, toolArgs)
                         else -> DebugToolHandler(project).handle(toolName, toolArgs)

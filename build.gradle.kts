@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "com.github.alexeyleping"
-version = "0.2.0"
+version = "0.4.0"
 
 repositories {
     mavenCentral()
@@ -20,6 +20,7 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity("2024.3")
         bundledPlugin("com.intellij.java")
+        bundledPlugin("JUnit")
         testFramework(TestFrameworkType.Platform)
     }
 
@@ -38,7 +39,7 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         name = "IntelliJ Debug MCP"
-        version = "0.2.0"
+        version = "0.4.0"
     }
 }
 

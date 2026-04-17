@@ -12,8 +12,8 @@
     <depends>com.intellij.modules.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Сервис уровня проекта — поднимает MCP-сервер при открытии проекта -->
-        <projectService
+        <!-- APP-level service — один сервер на всю IDE, активный проект переключается динамически -->
+        <applicationService
             serviceInterface="com.github.alexeyleping.intellijdebugmcp.server.McpServerService"
             serviceImplementation="com.github.alexeyleping.intellijdebugmcp.server.McpServerServiceImpl"/>
     </extensions>
