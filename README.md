@@ -1,8 +1,8 @@
 # intellij-debug-mcp
 
-> **Control the IntelliJ IDEA debugger with Claude Code (or any MCP client) via natural language.**
+> **Control the IntelliJ IDEA debugger and build system with Claude Code (or any MCP client) via natural language.**
 
-An IntelliJ IDEA plugin that exposes the built-in Java debugger as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, and evaluate expressions — all without you touching the IDE manually.
+An IntelliJ IDEA plugin that exposes the built-in Java debugger and compiler as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, evaluate expressions, and build the project — all without you touching the IDE manually.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2024.3+-blue.svg)](https://www.jetbrains.com/idea/)
@@ -19,12 +19,14 @@ Debugging is one of the last things AI assistants couldn't do autonomously. They
 - Inspect local variables and evaluate arbitrary expressions at runtime
 - Step through code line by line while narrating what it observes
 - Find the root cause of a bug without you having to describe what you see in the debugger UI
+- Build the project, read compiler errors, fix the code, and rebuild — all autonomously
 
 **When to use it:**
 - You describe a bug to Claude Code and want it to investigate autonomously
 - You want Claude to verify a hypothesis ("is `sum` really 60 here?") without context-switching to the IDE
 - You're doing pair debugging — Claude watches the debugger while you read the code
 - Automated debugging workflows where the AI runs, breaks, inspects, and patches in one go
+- You want Claude to fix a compilation error end-to-end: build → read errors → patch → rebuild
 
 ---
 
@@ -99,7 +101,8 @@ IntelliJ IDEA plugin that exposes the Java debugger as an MCP server.
 Available tools: `set_breakpoint`, `remove_breakpoint`, `list_breakpoints`,
 `start_debug`, `stop_debug`, `get_session_state`, `get_stack_frames`,
 `get_variables`, `evaluate`, `step_over`, `step_into`, `step_out`,
-`select_frame`, `resume`, `pause`, `list_run_configs`
+`select_frame`, `resume`, `pause`, `list_run_configs`,
+`build_project`, `get_build_errors`
 
 Example:
 ```bash
@@ -123,6 +126,13 @@ curl -X POST http://localhost:63820/mcp \
 ---
 
 ## Available tools
+
+### Build
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `build_project` | Build the project (Make or Rebuild), returns status with errors and warnings | `rebuild` (boolean, optional — default `false`) |
+| `get_build_errors` | Get errors and warnings from the last build: file, line, message | — |
 
 ### Breakpoints
 
@@ -162,9 +172,9 @@ curl -X POST http://localhost:63820/mcp \
 
 ---
 
-## Usage example
+## Usage examples
 
-Here's a typical Claude Code debugging session:
+### Debugging session
 
 ```
 You: "The average() method returns wrong results. Debug it."
@@ -182,6 +192,22 @@ Claude:
  Fix: change line 14 to `return (double) sum / numbers.size();`"
 ```
 
+### Build loop (autonomous fix cycle)
+
+```
+You: "Fix all compilation errors."
+
+Claude:
+1. build_project              → Build FAILED: 2 error(s), 0 warning(s)
+                                  Errors:
+                                    Calculator.java:42 — cannot find symbol: method summ()
+                                    Calculator.java:57 — incompatible types: int, String
+2. [edits Calculator.java lines 42 and 57]
+3. build_project              → Build SUCCESS: 0 error(s), 0 warning(s)
+
+"Both errors fixed. Build is clean."
+```
+
 ---
 
 ## Architecture
@@ -195,14 +221,18 @@ http://localhost:63820/mcp          ← Ktor HTTP server (plugin)
         ▼
   McpServerServiceImpl              ← routes tools/list, tools/call
         │
-        ▼
-  DebugToolHandler                  ← calls IntelliJ XDebugger API
+        ├──▶ DebugToolHandler       ← XDebuggerManager, XBreakpointManager
+        │         │
+        │         ▼
+        │    IntelliJ XDebugger / JDWP   ← actual JVM debugger
         │
-        ▼
-  IntelliJ XDebugger / JDWP        ← actual JVM debugger
+        └──▶ BuildToolHandler       ← CompilerManager
+                  │
+                  ▼
+             IntelliJ Compiler      ← Make / Rebuild
 ```
 
-The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JSON. It talks to IntelliJ's `XDebuggerManager`, `XBreakpointManager`, and `XDebugSession` APIs on the EDT (Event Dispatch Thread) using `invokeLater` / `invokeAndWait`.
+The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JSON. `DebugToolHandler` talks to IntelliJ's `XDebuggerManager`, `XBreakpointManager`, and `XDebugSession` APIs. `BuildToolHandler` uses `CompilerManager` to trigger incremental builds and collect `CompilerMessage` results — errors and warnings with file paths and line numbers.
 
 ---
 

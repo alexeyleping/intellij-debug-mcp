@@ -1,4 +1,4 @@
-package com.github.alexeyleping.intellijdebugmcp.services
+package com.github.alexeyleping.intellijdebugmcp.tools.debug
 
 import com.intellij.execution.ProgramRunnerUtil
 import com.intellij.execution.RunManager
@@ -243,7 +243,7 @@ class DebugToolHandler(private val project: Project) {
         val vFile = VirtualFileManager.getInstance().findFileByUrl(url)
             ?: return "File not found: $filePath"
 
-        val line0 = line - 1  // IntelliJ uses 0-based lines
+        val line0 = line - 1
         val type = BREAKPOINT_TYPE_EP.extensionList
             .filterIsInstance<XLineBreakpointType<*>>()
             .firstOrNull { it.canPutAt(vFile, line0, project) }
@@ -265,7 +265,7 @@ class DebugToolHandler(private val project: Project) {
 
     private fun removeBreakpoint(filePath: String, line: Int): String {
         val url = VfsUtil.pathToUrl(filePath)
-        val line0 = line - 1  // IntelliJ uses 0-based lines
+        val line0 = line - 1
 
         val breakpointManager = XDebuggerManager.getInstance(project).breakpointManager
         val bp = breakpointManager.allBreakpoints

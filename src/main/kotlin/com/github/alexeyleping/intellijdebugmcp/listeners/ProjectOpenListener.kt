@@ -1,6 +1,6 @@
 package com.github.alexeyleping.intellijdebugmcp.listeners
 
-import com.github.alexeyleping.intellijdebugmcp.services.McpServerService
+import com.github.alexeyleping.intellijdebugmcp.server.McpServerService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManagerListener
 

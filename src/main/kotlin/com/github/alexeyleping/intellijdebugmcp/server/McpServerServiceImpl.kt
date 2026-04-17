@@ -1,5 +1,7 @@
-package com.github.alexeyleping.intellijdebugmcp.services
+package com.github.alexeyleping.intellijdebugmcp.server
 
+import com.github.alexeyleping.intellijdebugmcp.tools.build.BuildToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.debug.DebugToolHandler
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
@@ -67,7 +69,7 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                     put("protocolVersion", "2024-11-05")
                     put("serverInfo", buildJsonObject {
                         put("name", "intellij-debug-mcp")
-                        put("version", "0.1.0")
+                        put("version", "0.2.0")
                     })
                     put("capabilities", buildJsonObject {
                         put("tools", buildJsonObject {})
@@ -76,6 +78,7 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
 
                 "tools/list" -> buildResult(id, buildJsonObject {
                     put("tools", buildJsonArray {
+                        // Debug tools
                         add(toolDef("set_breakpoint", "Set a breakpoint at the given file and line",
                             mapOf("file" to "string", "line" to "integer")))
                         add(toolDef("remove_breakpoint", "Remove a breakpoint at the given file and line",
@@ -97,6 +100,13 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                         add(toolDef("list_run_configs", "List all run configurations in the project", emptyMap()))
                         add(toolDef("start_debug", "Start a debug session for the given run configuration name",
                             mapOf("name" to "string")))
+                        // Build tools
+                        add(toolDef("build_project",
+                            "Build the project (incremental Make). Pass rebuild=true for a full Rebuild.",
+                            emptyMap(), mapOf("rebuild" to "boolean")))
+                        add(toolDef("get_build_errors",
+                            "Return errors and warnings from the last build_project call",
+                            emptyMap()))
                     })
                 })
 
@@ -104,7 +114,11 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
                     val params = request["params"]?.jsonObject
                     val toolName = params?.get("name")?.jsonPrimitive?.content ?: ""
                     val toolArgs = params?.get("arguments")?.jsonObject ?: JsonObject(emptyMap())
-                    val result = DebugToolHandler(project).handle(toolName, toolArgs)
+                    val result = when (toolName) {
+                        "build_project", "get_build_errors" ->
+                            BuildToolHandler(project).handle(toolName, toolArgs)
+                        else -> DebugToolHandler(project).handle(toolName, toolArgs)
+                    }
                     buildResult(id, buildJsonObject {
                         put("content", buildJsonArray {
                             add(buildJsonObject {
@@ -125,16 +139,20 @@ class McpServerServiceImpl(private val project: Project) : McpServerService, Dis
         }
     }
 
-    private fun toolDef(name: String, description: String, params: Map<String, String>): JsonObject {
+    private fun toolDef(
+        name: String,
+        description: String,
+        params: Map<String, String>,
+        optionalParams: Map<String, String> = emptyMap()
+    ): JsonObject {
         return buildJsonObject {
             put("name", name)
             put("description", description)
             put("inputSchema", buildJsonObject {
                 put("type", "object")
                 put("properties", buildJsonObject {
-                    params.forEach { (k, v) ->
-                        put(k, buildJsonObject { put("type", v) })
-                    }
+                    params.forEach { (k, v) -> put(k, buildJsonObject { put("type", v) }) }
+                    optionalParams.forEach { (k, v) -> put(k, buildJsonObject { put("type", v) }) }
                 })
                 put("required", buildJsonArray { params.keys.forEach { add(it) } })
             })

@@ -1,7 +1,8 @@
+ROADMAP.md
 .gradle/
 .idea/
 .intellijPlatform/
-build/
+/build/
 *.class
 *.jar
 out/

@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "com.github.alexeyleping"
-version = "0.1.0"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -38,7 +38,7 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         name = "IntelliJ Debug MCP"
-        version = "0.1.0"
+        version = "0.2.0"
     }
 }
 

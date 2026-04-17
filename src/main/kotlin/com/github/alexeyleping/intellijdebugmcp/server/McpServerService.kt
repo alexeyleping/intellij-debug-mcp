@@ -1,6 +1,4 @@
-package com.github.alexeyleping.intellijdebugmcp.services
-
-import com.intellij.openapi.project.Project
+package com.github.alexeyleping.intellijdebugmcp.server
 
 interface McpServerService {
     fun start()
