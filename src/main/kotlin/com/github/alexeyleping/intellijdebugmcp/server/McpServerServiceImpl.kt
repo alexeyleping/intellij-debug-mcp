@@ -2,6 +2,7 @@ package com.github.alexeyleping.intellijdebugmcp.server
 
 import com.github.alexeyleping.intellijdebugmcp.tools.build.BuildToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.debug.DebugToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.files.FileToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.tests.TestToolHandler
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
@@ -92,7 +93,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
                     put("protocolVersion", "2024-11-05")
                     put("serverInfo", buildJsonObject {
                         put("name", "intellij-debug-mcp")
-                        put("version", "0.4.0")
+                        put("version", "0.5.0")
                     })
                     put("capabilities", buildJsonObject {
                         put("tools", buildJsonObject {})
@@ -138,6 +139,28 @@ class McpServerServiceImpl : McpServerService, Disposable {
                         add(toolDef("get_build_errors",
                             "Return errors and warnings from the last build_project call",
                             emptyMap()))
+                        // File/Editor tools
+                        add(toolDef("read_file",
+                            "Read file contents by path (absolute or relative to project root). Supports offset and limit for pagination.",
+                            mapOf("path" to "string"),
+                            mapOf("offset" to "integer", "limit" to "integer")))
+                        add(toolDef("list_files",
+                            "List files and directories at the given path (relative to project root). Defaults to project root.",
+                            emptyMap(), mapOf("path" to "string")))
+                        add(toolDef("find_files",
+                            "Find files matching a glob pattern (e.g. '*.kt', 'src/**/*.java') within the project.",
+                            mapOf("pattern" to "string")))
+                        add(toolDef("search_in_files",
+                            "Full-text search across project files. Optionally filter by filePattern glob (e.g. '*.kt').",
+                            mapOf("query" to "string"),
+                            mapOf("filePattern" to "string")))
+                        add(toolDef("get_open_files",
+                            "List all files currently open in the editor.",
+                            emptyMap()))
+                        add(toolDef("open_file",
+                            "Open a file in the editor. Optionally navigate to a specific line.",
+                            mapOf("path" to "string"),
+                            mapOf("line" to "integer")))
                     })
                 })
 
@@ -152,6 +175,8 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             TestToolHandler(project).handle(toolName, toolArgs)
                         "build_project", "get_build_errors" ->
                             BuildToolHandler(project).handle(toolName, toolArgs)
+                        "read_file", "list_files", "find_files", "search_in_files", "get_open_files", "open_file" ->
+                            FileToolHandler(project).handle(toolName, toolArgs)
                         else -> DebugToolHandler(project).handle(toolName, toolArgs)
                     }
                     buildResult(id, buildJsonObject {

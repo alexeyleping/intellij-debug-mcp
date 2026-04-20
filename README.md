@@ -1,8 +1,8 @@
 # intellij-debug-mcp
 
-> **Control the IntelliJ IDEA debugger, build system, and test runner with Claude Code (or any MCP client) via natural language.**
+> **Control the IntelliJ IDEA debugger, build system, test runner, and file system with Claude Code (or any MCP client) via natural language.**
 
-An IntelliJ IDEA plugin that exposes the built-in Java debugger, compiler, and test runner as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, evaluate expressions, build the project, and run tests — all without you touching the IDE manually.
+An IntelliJ IDEA plugin that exposes the built-in Java debugger, compiler, test runner, and file/editor APIs as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, evaluate expressions, build the project, run tests, read files, and navigate the codebase — all without you touching the IDE manually.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2024.3+-blue.svg)](https://www.jetbrains.com/idea/)
@@ -21,6 +21,7 @@ Debugging is one of the last things AI assistants couldn't do autonomously. They
 - Find the root cause of a bug without you having to describe what you see in the debugger UI
 - Build the project, read compiler errors, fix the code, and rebuild — all autonomously
 - Run JUnit/TestNG tests, collect results with stack traces, and iterate until all tests pass
+- Read any file in the project, search across the codebase, and open files in the editor
 
 **When to use it:**
 - You describe a bug to Claude Code and want it to investigate autonomously
@@ -29,6 +30,7 @@ Debugging is one of the last things AI assistants couldn't do autonomously. They
 - Automated debugging workflows where the AI runs, breaks, inspects, and patches in one go
 - You want Claude to fix a compilation error end-to-end: build → read errors → patch → rebuild
 - Full TDD loop: Claude writes a fix, runs the tests, reads failures, patches again — until green
+- Claude needs to explore an unfamiliar codebase: find relevant files, read them, search for usages
 
 ---
 
@@ -105,7 +107,9 @@ Available tools: `set_breakpoint`, `remove_breakpoint`, `list_breakpoints`,
 `get_variables`, `evaluate`, `step_over`, `step_into`, `step_out`,
 `select_frame`, `resume`, `pause`, `list_run_configs`,
 `build_project`, `get_build_errors`,
-`run_tests`, `get_test_results`
+`run_tests`, `get_test_results`,
+`read_file`, `list_files`, `find_files`, `search_in_files`,
+`get_open_files`, `open_file`
 
 Example:
 ```bash
@@ -129,6 +133,17 @@ curl -X POST http://localhost:63820/mcp \
 ---
 
 ## Available tools
+
+### File / Editor
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `read_file` | Read file contents (absolute or relative to project root). Supports pagination. | `path` (string, required), `offset` (int, optional), `limit` (int, optional — default 500) |
+| `list_files` | List files and directories at a path. Defaults to project root. | `path` (string, optional) |
+| `find_files` | Find files matching a glob pattern (e.g. `*.kt`, `src/**/*.java`). | `pattern` (string, required) |
+| `search_in_files` | Full-text search across project files. Optionally filter by file pattern. | `query` (string, required), `filePattern` (string, optional) |
+| `get_open_files` | List all files currently open in the editor. | — |
+| `open_file` | Open a file in the editor, optionally at a specific line. | `path` (string, required), `line` (int, optional) |
 
 ### Tests
 
@@ -218,6 +233,25 @@ Claude:
 "Both errors fixed. Build is clean."
 ```
 
+### Codebase exploration
+
+```
+You: "Find all places where the payment service is called."
+
+Claude:
+1. search_in_files "PaymentService"  → 6 matches in 4 files:
+                                        src/checkout/CheckoutService.java:42
+                                        src/orders/OrderProcessor.java:87
+                                        ...
+2. read_file "src/checkout/CheckoutService.java" offset=38 limit=10
+                                     → lines 38–48: context around the call
+3. open_file "src/checkout/CheckoutService.java" line=42
+                                     → file opened in editor at line 42
+
+"PaymentService is called in 4 places. The main entry point is
+ CheckoutService.java:42 — here's what the call looks like: ..."
+```
+
 ### TDD loop (autonomous test–fix cycle)
 
 ```
@@ -263,13 +297,18 @@ http://localhost:63820/mcp          ← Ktor HTTP server (plugin, APP-level)
         │         ▼
         │    IntelliJ Compiler      ← Make / Rebuild
         │
-        └──▶ TestToolHandler        ← RunManager, ExecutionEnvironmentBuilder
+        ├──▶ TestToolHandler        ← RunManager, ExecutionEnvironmentBuilder
+        │         │
+        │         ▼
+        │    JUnit / TestNG runner  ← SMTestProxy (SM Test Framework)
+        │
+        └──▶ FileToolHandler        ← LocalFileSystem, FileEditorManager
                   │
                   ▼
-             JUnit / TestNG runner  ← SMTestProxy (SM Test Framework)
+             VirtualFile / OpenFileDescriptor  ← VFS + Editor navigation
 ```
 
-The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JSON. The server runs at the **application level** — one instance for the whole IDE, with the active project tracked dynamically as projects are opened and closed. `DebugToolHandler` talks to IntelliJ's `XDebuggerManager`, `XBreakpointManager`, and `XDebugSession` APIs. `BuildToolHandler` uses `CompilerManager` for incremental builds. `TestToolHandler` uses `RunManager` and `ExecutionEnvironmentBuilder` to run JUnit/TestNG configs and `SMTRunnerEventsListener` to collect per-test results with stack traces.
+The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JSON. The server runs at the **application level** — one instance for the whole IDE, with the active project tracked dynamically as projects are opened and closed. `DebugToolHandler` talks to IntelliJ's `XDebuggerManager`, `XBreakpointManager`, and `XDebugSession` APIs. `BuildToolHandler` uses `CompilerManager` for incremental builds. `TestToolHandler` uses `RunManager` and `ExecutionEnvironmentBuilder` to run JUnit/TestNG configs and `SMTRunnerEventsListener` to collect per-test results with stack traces. `FileToolHandler` uses IntelliJ's `LocalFileSystem` VFS to read files and walk directory trees, and `FileEditorManager` / `OpenFileDescriptor` for editor navigation.
 
 ---
 
