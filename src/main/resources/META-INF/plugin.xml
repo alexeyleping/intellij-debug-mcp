@@ -49,6 +49,12 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.0.2 — Bug fixes</h3>
+        <ul>
+            <li><b>set_breakpoint</b> — fixed: now accepts relative paths (resolved against project root via VfsUtil)</li>
+            <li><b>get_file_structure</b> — fixed: replaced reflection-based Kotlin PSI traversal with
+                <code>PsiShortNamesCache</code> API, compatible with Kotlin K2 compiler mode</li>
+        </ul>
         <h3>1.0.1 — Compatibility fix</h3>
         <ul>
             <li>Fixed compatibility with IntelliJ IDEA 2025.1 (IC-251)</li>

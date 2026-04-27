@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
@@ -118,34 +119,11 @@ class PsiToolHandler(private val project: Project) {
         }
     }
 
-    // Kotlin PSI classes loaded via reflection to avoid classloader issues at runtime.
-    // Our plugin classloader may not inherit Kotlin plugin's classloader even with <depends>.
-    private fun collectKotlinClassesReflective(psiFile: PsiFile, result: MutableList<PsiClass>) {
-        try {
-            val loader = psiFile.javaClass.classLoader
-            val ktFileClass = loader.loadClass("org.jetbrains.kotlin.psi.KtFile")
-            if (!ktFileClass.isInstance(psiFile)) return
-            val ktClassClass = loader.loadClass("org.jetbrains.kotlin.psi.KtClassOrObject")
-            val getDeclarations = ktFileClass.getMethod("getDeclarations")
-            collectKtClassesReflective(psiFile, ktClassClass, getDeclarations, result)
-        } catch (_: ReflectiveOperationException) {}
-    }
-
-    private fun collectKtClassesReflective(
-        element: Any,
-        ktClassClass: Class<*>,
-        getDeclarations: java.lang.reflect.Method,
-        result: MutableList<PsiClass>
-    ) {
-        @Suppress("UNCHECKED_CAST")
-        val decls = getDeclarations.invoke(element) as? List<*> ?: return
-        val toLightClass = ktClassClass.getMethod("toLightClass")
-        decls.forEach { decl ->
-            if (decl != null && ktClassClass.isInstance(decl)) {
-                val light = toLightClass.invoke(decl) as? PsiClass
-                if (light != null) result.add(light)
-                collectKtClassesReflective(decl, ktClassClass, getDeclarations, result)
-            }
+    private fun findClassesInFile(vf: VirtualFile): List<PsiClass> {
+        val fileScope = GlobalSearchScope.fileScope(project, vf)
+        val cache = PsiShortNamesCache.getInstance(project)
+        return cache.getAllClassNames().flatMap { name ->
+            cache.getClassesByName(name, fileScope).toList()
         }
     }
 
@@ -159,18 +137,7 @@ class PsiToolHandler(private val project: Project) {
             val psiFile = PsiManager.getInstance(project).findFile(vf)
                 ?: return@compute "Cannot parse file: $path"
 
-            val classes = mutableListOf<PsiClass>()
-            if (psiFile.javaClass.name.contains("KtFile")) {
-                collectKotlinClassesReflective(psiFile, classes)
-            } else {
-                psiFile.accept(object : PsiRecursiveElementVisitor() {
-                    override fun visitElement(element: PsiElement) {
-                        if (element is PsiClass) classes.add(element)
-                        super.visitElement(element)
-                    }
-                })
-            }
-
+            val classes = findClassesInFile(vf)
             if (classes.isEmpty()) return@compute "No classes found in: $path"
 
             val doc = PsiDocumentManager.getInstance(project).getDocument(psiFile)

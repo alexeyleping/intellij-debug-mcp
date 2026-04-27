@@ -240,7 +240,8 @@ class DebugToolHandler(private val project: Project) {
     }
 
     private fun setBreakpoint(filePath: String, line: Int): String {
-        val url = VfsUtil.pathToUrl(filePath)
+        val absPath = if (filePath.startsWith("/")) filePath else "${project.basePath}/$filePath"
+        val url = VfsUtil.pathToUrl(absPath)
         val vFile = VirtualFileManager.getInstance().findFileByUrl(url)
             ?: return "File not found: $filePath"
 
@@ -265,7 +266,8 @@ class DebugToolHandler(private val project: Project) {
     }
 
     private fun removeBreakpoint(filePath: String, line: Int): String {
-        val url = VfsUtil.pathToUrl(filePath)
+        val absPath = if (filePath.startsWith("/")) filePath else "${project.basePath}/$filePath"
+        val url = VfsUtil.pathToUrl(absPath)
         val line0 = line - 1
 
         val breakpointManager = XDebuggerManager.getInstance(project).breakpointManager
