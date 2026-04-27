@@ -26,7 +26,7 @@ import com.intellij.xdebugger.frame.XValueChildrenList
 import com.intellij.xdebugger.frame.XValueNode
 import com.intellij.xdebugger.frame.XValuePlace
 import com.intellij.xdebugger.frame.presentation.XValuePresentation
-import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointImpl
+import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import java.util.Collections
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -122,7 +122,7 @@ class DebugToolHandler(private val project: Project) {
         if (breakpoints.isEmpty()) return "No breakpoints set"
         return breakpoints.joinToString("\n") { bp ->
             when (bp) {
-                is XLineBreakpointImpl<*> -> "${bp.presentableFilePath}:${bp.line + 1} [${if (bp.isEnabled) "enabled" else "disabled"}] type=${bp.type.javaClass.simpleName}"
+                is XLineBreakpoint<*> -> "${bp.presentableFilePath}:${bp.line + 1} [${if (bp.isEnabled) "enabled" else "disabled"}] type=${bp.type.javaClass.simpleName}"
                 else -> bp.toString()
             }
         }
@@ -222,6 +222,7 @@ class DebugToolHandler(private val project: Project) {
                 }
             }
             override fun tooManyChildren(remaining: Int) {}
+            override fun tooManyChildren(remaining: Int, addNextChildrenCallback: Runnable) {}
             override fun setAlreadySorted(alreadySorted: Boolean) {}
             override fun setErrorMessage(errorMessage: String) { future.complete("Error: $errorMessage") }
             override fun setErrorMessage(errorMessage: String, link: XDebuggerTreeNodeHyperlink?) { future.complete("Error: $errorMessage") }
@@ -251,7 +252,7 @@ class DebugToolHandler(private val project: Project) {
 
         val breakpointManager = XDebuggerManager.getInstance(project).breakpointManager
         val existing = breakpointManager.allBreakpoints
-            .filterIsInstance<XLineBreakpointImpl<*>>()
+            .filterIsInstance<XLineBreakpoint<*>>()
             .any { it.fileUrl == url && it.line == line0 }
         if (existing) return "Breakpoint already exists at $filePath:$line"
 
@@ -269,7 +270,7 @@ class DebugToolHandler(private val project: Project) {
 
         val breakpointManager = XDebuggerManager.getInstance(project).breakpointManager
         val bp = breakpointManager.allBreakpoints
-            .filterIsInstance<XLineBreakpointImpl<*>>()
+            .filterIsInstance<XLineBreakpoint<*>>()
             .firstOrNull { it.fileUrl == url && it.line == line0 }
             ?: return "No breakpoint at $filePath:$line"
 
