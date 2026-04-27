@@ -1,15 +1,72 @@
 <idea-plugin>
     <id>com.github.alexeyleping.intellij-debug-mcp</id>
-    <name>IntelliJ Debug MCP</name>
-    <vendor>alexeyleping</vendor>
+    <name>Debug MCP</name>
+    <vendor email="alexeyleping@gmail.com" url="https://github.com/alexeyleping/intellij-debug-mcp">alexeyleping</vendor>
 
-    <description>
-        Exposes IntelliJ XDebugger API as an MCP server so that Claude Code can
-        set breakpoints, control execution, and inspect variables.
-    </description>
+    <description><![CDATA[
+        <p>
+            Control IntelliJ IDEA with AI coding assistants like <b>Claude Code</b> via the
+            <a href="https://modelcontextprotocol.io">Model Context Protocol (MCP)</a>.
+        </p>
+        <p>
+            The plugin starts a local MCP server (JSON-RPC 2.0 over HTTP on port 63820) that exposes
+            <b>37 tools</b> across 8 API groups:
+        </p>
+        <ul>
+            <li><b>Debugger</b> — set/remove breakpoints, start/stop sessions, step over/into/out,
+                inspect variables, evaluate expressions, navigate stack frames</li>
+            <li><b>Build</b> — incremental build or full rebuild, read compiler errors and warnings</li>
+            <li><b>Tests</b> — run JUnit/TestNG tests by class or method, collect results with stack traces</li>
+            <li><b>Files &amp; Editor</b> — read files, list directories, glob search, full-text search,
+                open files in editor at a specific line</li>
+            <li><b>PSI (Code Structure)</b> — find classes, inspect their fields and methods,
+                find all usages, get file structure with signatures and line numbers</li>
+            <li><b>Inspections</b> — surface IDE static-analysis warnings (errors / warnings / weak warnings)
+                for any open file</li>
+            <li><b>Git</b> — git blame with line range, commit log, diffs by file or commit</li>
+            <li><b>Run Configurations</b> — list, create, and update Application / JUnit run configs</li>
+        </ul>
+        <p>
+            Claude Code uses its built-in Bash tool to call the server via <code>curl</code> — no extra
+            MCP client setup needed. Just add a short block to <code>~/.claude/CLAUDE.md</code> and
+            Claude will discover all tools automatically.
+        </p>
+        <p>
+            <b>Example workflows:</b>
+        </p>
+        <ul>
+            <li>Set a breakpoint, launch a debug session, inspect variables, find the bug — autonomously</li>
+            <li>Build → read errors → patch code → rebuild until clean</li>
+            <li>Run tests → read failures → fix → repeat until green</li>
+            <li>Explore an unfamiliar codebase: find classes, trace usages, read relevant files</li>
+            <li>Audit code quality: get IDE inspections, fix all warnings</li>
+            <li>Git blame a suspicious line and read the commit that introduced it</li>
+        </ul>
+        <p>
+            See the <a href="https://github.com/alexeyleping/intellij-debug-mcp">GitHub repository</a>
+            for setup instructions and full tool reference.
+        </p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>1.0.0 — Initial release</h3>
+        <ul>
+            <li><b>Debugger API</b> — breakpoints, session control, step commands, variable inspection,
+                expression evaluation, stack frame navigation</li>
+            <li><b>Build API</b> — incremental Make / full Rebuild, compiler error reader</li>
+            <li><b>Test Runner API</b> — run JUnit/TestNG tests, collect per-test results with stack traces</li>
+            <li><b>File/Editor API</b> — read files, list directories, glob and full-text search,
+                open files in editor</li>
+            <li><b>PSI API</b> — find classes, find usages, get file structure</li>
+            <li><b>Inspections API</b> — surface IDE static-analysis warnings by severity</li>
+            <li><b>Git API</b> — git blame, log, diff</li>
+            <li><b>Run Config API</b> — create and update Application/JUnit run configurations</li>
+        </ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
+    <depends>org.jetbrains.kotlin</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- APP-level service — один сервер на всю IDE, активный проект переключается динамически -->

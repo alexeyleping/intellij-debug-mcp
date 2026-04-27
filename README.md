@@ -1,8 +1,8 @@
 # intellij-debug-mcp
 
-> **Control the IntelliJ IDEA debugger, build system, test runner, and file system with Claude Code (or any MCP client) via natural language.**
+> **Control the IntelliJ IDEA debugger, build system, test runner, file system, code structure, static analysis, and Git history with Claude Code (or any MCP client) via natural language.**
 
-An IntelliJ IDEA plugin that exposes the built-in Java debugger, compiler, test runner, and file/editor APIs as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, evaluate expressions, build the project, run tests, read files, and navigate the codebase — all without you touching the IDE manually.
+An IntelliJ IDEA plugin that exposes the built-in Java debugger, compiler, test runner, file/editor, PSI (Program Structure Interface), IDE inspections, and Git APIs as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, evaluate expressions, build the project, run tests, read files, navigate the codebase, semantically understand code structure, surface IDE warnings, and trace Git history — all without you touching the IDE manually.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2024.3+-blue.svg)](https://www.jetbrains.com/idea/)
@@ -22,6 +22,10 @@ Debugging is one of the last things AI assistants couldn't do autonomously. They
 - Build the project, read compiler errors, fix the code, and rebuild — all autonomously
 - Run JUnit/TestNG tests, collect results with stack traces, and iterate until all tests pass
 - Read any file in the project, search across the codebase, and open files in the editor
+- Find classes, inspect their methods and fields, and trace all usages — without reading raw source files
+- Get IDE static-analysis warnings (errors, warnings, weak warnings) for any file — just like hovering over red/yellow highlights
+- Trace Git history: blame any line, browse commit log, diff any commit or file — all from Claude's terminal
+- Create or update run configurations on the fly without opening the IDE UI
 
 **When to use it:**
 - You describe a bug to Claude Code and want it to investigate autonomously
@@ -31,6 +35,9 @@ Debugging is one of the last things AI assistants couldn't do autonomously. They
 - You want Claude to fix a compilation error end-to-end: build → read errors → patch → rebuild
 - Full TDD loop: Claude writes a fix, runs the tests, reads failures, patches again — until green
 - Claude needs to explore an unfamiliar codebase: find relevant files, read them, search for usages
+- Claude needs to understand architecture: find a class, inspect its API, trace where it's used
+- Claude needs to audit code quality: get IDE inspections, see all warnings, fix them automatically
+- Claude needs to understand code evolution: git blame a suspicious line, read the commit that introduced it
 
 ---
 
@@ -61,7 +68,8 @@ In IntelliJ IDEA:
 
 ### Option 2 — JetBrains Marketplace
 
-> Coming soon.
+Search for **"IntelliJ Debug MCP"** in **Settings → Plugins → Marketplace**, or install directly from the
+[JetBrains Plugin Marketplace](https://plugins.jetbrains.com/plugin/TODO).
 
 ---
 
@@ -105,11 +113,14 @@ IntelliJ IDEA plugin that exposes the Java debugger as an MCP server.
 Available tools: `set_breakpoint`, `remove_breakpoint`, `list_breakpoints`,
 `start_debug`, `stop_debug`, `get_session_state`, `get_stack_frames`,
 `get_variables`, `evaluate`, `step_over`, `step_into`, `step_out`,
-`select_frame`, `resume`, `pause`, `list_run_configs`,
+`select_frame`, `resume`, `pause`, `list_run_configs`, `create_run_config`, `update_run_config`,
 `build_project`, `get_build_errors`,
 `run_tests`, `get_test_results`,
 `read_file`, `list_files`, `find_files`, `search_in_files`,
-`get_open_files`, `open_file`
+`get_open_files`, `open_file`,
+`find_class`, `find_usages`, `get_file_structure`,
+`get_inspections`,
+`git_blame`, `git_log`, `git_diff`
 
 Example:
 ```bash
@@ -133,6 +144,14 @@ curl -X POST http://localhost:63820/mcp \
 ---
 
 ## Available tools
+
+### PSI (Code Structure)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `find_class` | Find a class by short name or fully-qualified name. Returns file, line, fields, and methods with signatures. | `name` (string, required) |
+| `find_usages` | Find all usages of a class, method, or field in the project. Use `className` to search for a specific class member. | `name` (string, required), `className` (string, optional) |
+| `get_file_structure` | Get the full structure of a file: all classes with their fields and methods, signatures, and line numbers. | `path` (string, required) |
 
 ### File / Editor
 
@@ -159,6 +178,20 @@ curl -X POST http://localhost:63820/mcp \
 | `build_project` | Build the project (Make or Rebuild), returns status with errors and warnings | `rebuild` (boolean, optional — default `false`) |
 | `get_build_errors` | Get errors and warnings from the last build: file, line, message | — |
 
+### Git
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `git_blame` | Show who last modified each line of a file. Optionally narrow to a line range. | `path` (string, required), `startLine` (int, optional), `endLine` (int, optional) |
+| `git_log` | Show commit history. Optionally filter by file path. Default 20 commits, max 100. | `path` (string, optional), `maxCount` (int, optional) |
+| `git_diff` | Show diff. Optionally filter by file path and/or commit/range (e.g. `HEAD~1`, `abc123..HEAD`). | `path` (string, optional), `commit` (string, optional) |
+
+### Inspections (Static Analysis)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_inspections` | Return static analysis problems from the IDE daemon for open files or a specific file. Open the file in the editor before calling. | `path` (string, optional), `severity` (string, optional — `ERROR`, `WARNING`, `WEAK_WARNING`) |
+
 ### Breakpoints
 
 | Tool | Description | Parameters |
@@ -172,6 +205,8 @@ curl -X POST http://localhost:63820/mcp \
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `list_run_configs` | List all run configurations in the project | — |
+| `create_run_config` | Create a new run configuration. `type`: `application` (default) or `junit`. | `name` (string, required), `type` (string, optional), `mainClass` (string, optional), `testClass` (string, optional), `vmOptions` (string, optional), `programArgs` (string, optional), `workingDir` (string, optional) |
+| `update_run_config` | Update an existing run configuration by name. Only provided fields are changed. | `name` (string, required), `mainClass` / `testClass` / `vmOptions` / `programArgs` / `workingDir` (all optional) |
 | `start_debug` | Start a debug session by run config name | `name` (string) |
 | `stop_debug` | Stop the current debug session | — |
 | `get_session_state` | Get session status and current paused position | — |
@@ -252,6 +287,34 @@ Claude:
  CheckoutService.java:42 — here's what the call looks like: ..."
 ```
 
+### Code structure exploration (PSI)
+
+```
+You: "Where is PaymentService used and what methods does it have?"
+
+Claude:
+1. find_class "PaymentService"
+   → Class: com.example.payments.PaymentService
+     File: src/main/java/com/example/payments/PaymentService.java:12
+     Fields (1):
+       PaymentGateway gateway
+     Methods (3):
+       void processPayment(Order order, BigDecimal amount)
+       boolean refund(String transactionId)
+       List<Transaction> getHistory(String customerId)
+
+2. find_usages "PaymentService"
+   → Found 5 usage(s) of 'PaymentService':
+       src/checkout/CheckoutService.java:34: PaymentService paymentService
+       src/checkout/CheckoutService.java:89: paymentService.processPayment(order, total)
+       src/orders/OrderProcessor.java:61: new PaymentService(gateway)
+       ...
+
+"PaymentService has 3 public methods. It's injected in CheckoutService
+ and instantiated in OrderProcessor. The main call is processPayment
+ at CheckoutService.java:89."
+```
+
 ### TDD loop (autonomous test–fix cycle)
 
 ```
@@ -272,6 +335,44 @@ Claude:
    → All tests passed!
 
 "Both failures fixed. All 3 tests are green."
+```
+
+### Git history exploration
+
+```
+You: "Who introduced the bug in the average() method and when?"
+
+Claude:
+1. git_blame "src/main/java/com/example/Calculator.java" startLine=10 endLine=20
+   → 14: a3f92c1d | 2025-03-12 | bob | fix: correct average calculation
+     15: a3f92c1d |  |  |
+
+2. git_log "src/main/java/com/example/Calculator.java" maxCount=5
+   → a3f92c1d | 2025-03-12 | bob | fix: correct average calculation
+     7e84b02f | 2025-03-10 | alice | refactor: extract Calculator class
+
+3. git_diff commit="a3f92c1d"
+   → -return (double) sum / numbers.size();
+     +return (double) sum / (numbers.size() - 1);
+
+"Bob introduced the off-by-one on 2025-03-12 in commit a3f92c1d —
+ changed size() to (size()-1) by mistake."
+```
+
+### IDE inspections
+
+```
+You: "Are there any code quality issues in Calculator.java?"
+
+Claude:
+1. open_file "src/main/java/com/example/Calculator.java"
+2. get_inspections "src/main/java/com/example/Calculator.java" severity="WARNING"
+   → WARNING  line 14: Division by zero is possible
+     WARNING  line 28: Variable 'result' is never used
+     ERROR    line 35: Cannot resolve symbol 'Mathh'
+
+"Three issues found: potential division-by-zero on line 14,
+ unused variable on line 28, and a typo 'Mathh' on line 35."
 ```
 
 ---
@@ -302,13 +403,33 @@ http://localhost:63820/mcp          ← Ktor HTTP server (plugin, APP-level)
         │         ▼
         │    JUnit / TestNG runner  ← SMTestProxy (SM Test Framework)
         │
-        └──▶ FileToolHandler        ← LocalFileSystem, FileEditorManager
+        ├──▶ FileToolHandler        ← LocalFileSystem, FileEditorManager
+        │         │
+        │         ▼
+        │    VirtualFile / OpenFileDescriptor  ← VFS + Editor navigation
+        │
+        ├──▶ PsiToolHandler         ← PsiManager, JavaPsiFacade, PsiShortNamesCache
+        │         │
+        │         ▼
+        │    PSI tree / ReferencesSearch  ← semantic code model
+        │
+        ├──▶ InspectionsToolHandler ← DaemonCodeAnalyzer, HighlightInfo
+        │         │
+        │         ▼
+        │    IDE Inspections daemon  ← static analysis (errors/warnings)
+        │
+        ├──▶ GitToolHandler         ← GitRepositoryManager, git CLI
+        │         │
+        │         ▼
+        │    Git4Idea / git blame/log/diff
+        │
+        └──▶ RunConfigToolHandler   ← RunManager
                   │
                   ▼
-             VirtualFile / OpenFileDescriptor  ← VFS + Editor navigation
+             Run Configuration API  ← create / update application & junit configs
 ```
 
-The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JSON. The server runs at the **application level** — one instance for the whole IDE, with the active project tracked dynamically as projects are opened and closed. `DebugToolHandler` talks to IntelliJ's `XDebuggerManager`, `XBreakpointManager`, and `XDebugSession` APIs. `BuildToolHandler` uses `CompilerManager` for incremental builds. `TestToolHandler` uses `RunManager` and `ExecutionEnvironmentBuilder` to run JUnit/TestNG configs and `SMTRunnerEventsListener` to collect per-test results with stack traces. `FileToolHandler` uses IntelliJ's `LocalFileSystem` VFS to read files and walk directory trees, and `FileEditorManager` / `OpenFileDescriptor` for editor navigation.
+The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JSON. The server runs at the **application level** — one instance for the whole IDE, with the active project tracked dynamically as projects are opened and closed. `DebugToolHandler` talks to IntelliJ's `XDebuggerManager`, `XBreakpointManager`, and `XDebugSession` APIs. `BuildToolHandler` uses `CompilerManager` for incremental builds. `TestToolHandler` uses `RunManager` and `ExecutionEnvironmentBuilder` to run JUnit/TestNG configs and `SMTRunnerEventsListener` to collect per-test results with stack traces. `FileToolHandler` uses IntelliJ's `LocalFileSystem` VFS to read files and walk directory trees, and `FileEditorManager` / `OpenFileDescriptor` for editor navigation. `PsiToolHandler` uses `JavaPsiFacade` and `PsiShortNamesCache` to resolve classes by name (supporting both Java and Kotlin), `ReferencesSearch` for find-usages, and `PsiRecursiveElementVisitor` to extract file structure. `InspectionsToolHandler` reads `HighlightInfo` entries from the IDE's `DaemonCodeAnalyzer` to surface static analysis results. `GitToolHandler` uses IntelliJ's Git4Idea integration to run blame, log, and diff operations. `RunConfigToolHandler` uses `RunManager` to create and update application and JUnit run configurations programmatically.
 
 ---
 

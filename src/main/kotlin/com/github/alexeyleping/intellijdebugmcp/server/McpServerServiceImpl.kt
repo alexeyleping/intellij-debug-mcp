@@ -3,6 +3,10 @@ package com.github.alexeyleping.intellijdebugmcp.server
 import com.github.alexeyleping.intellijdebugmcp.tools.build.BuildToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.debug.DebugToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.files.FileToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.git.GitToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.inspections.InspectionsToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.psi.PsiToolHandler
+import com.github.alexeyleping.intellijdebugmcp.tools.runconfig.RunConfigToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.tests.TestToolHandler
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
@@ -93,7 +97,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
                     put("protocolVersion", "2024-11-05")
                     put("serverInfo", buildJsonObject {
                         put("name", "intellij-debug-mcp")
-                        put("version", "0.5.0")
+                        put("version", "0.9.0")
                     })
                     put("capabilities", buildJsonObject {
                         put("tools", buildJsonObject {})
@@ -161,6 +165,48 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             "Open a file in the editor. Optionally navigate to a specific line.",
                             mapOf("path" to "string"),
                             mapOf("line" to "integer")))
+                        // PSI tools
+                        add(toolDef("find_class",
+                            "Find a class by short name or fully-qualified name. Returns file, line, fields and methods.",
+                            mapOf("name" to "string")))
+                        add(toolDef("find_usages",
+                            "Find all usages of a class, method or field within the project. Use className to narrow search to a specific class member.",
+                            mapOf("name" to "string"),
+                            mapOf("className" to "string")))
+                        add(toolDef("get_file_structure",
+                            "Get structure of a file: all classes with their fields and methods (with signatures and line numbers).",
+                            mapOf("path" to "string")))
+                        // Inspections tools
+                        add(toolDef("get_inspections",
+                            "Return static analysis problems from the IDE daemon for open files or a specific file. " +
+                                "Results reflect the current IDE analysis — open the file in the editor before calling. " +
+                                "Filter by severity: ERROR, WARNING, WEAK_WARNING.",
+                            emptyMap(),
+                            mapOf("path" to "string", "severity" to "string")))
+                        // Git tools
+                        add(toolDef("git_blame",
+                            "Show who last modified each line of a file (git blame). Optionally narrow to a line range with startLine/endLine.",
+                            mapOf("path" to "string"),
+                            mapOf("startLine" to "integer", "endLine" to "integer")))
+                        add(toolDef("git_log",
+                            "Show commit history. Optionally filter by file path. Default maxCount=20, max 100.",
+                            emptyMap(),
+                            mapOf("path" to "string", "maxCount" to "integer")))
+                        add(toolDef("git_diff",
+                            "Show diff. Optionally filter by file path and/or a commit/range (e.g. 'HEAD~1', 'abc123..HEAD').",
+                            emptyMap(),
+                            mapOf("path" to "string", "commit" to "string")))
+                        // Run Config tools
+                        add(toolDef("create_run_config",
+                            "Create a new run configuration. type: 'application' (default) or 'junit'.",
+                            mapOf("name" to "string"),
+                            mapOf("type" to "string", "mainClass" to "string", "testClass" to "string",
+                                  "vmOptions" to "string", "programArgs" to "string", "workingDir" to "string")))
+                        add(toolDef("update_run_config",
+                            "Update an existing run configuration by name. Only provided fields are changed.",
+                            mapOf("name" to "string"),
+                            mapOf("mainClass" to "string", "testClass" to "string",
+                                  "vmOptions" to "string", "programArgs" to "string", "workingDir" to "string")))
                     })
                 })
 
@@ -177,6 +223,14 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             BuildToolHandler(project).handle(toolName, toolArgs)
                         "read_file", "list_files", "find_files", "search_in_files", "get_open_files", "open_file" ->
                             FileToolHandler(project).handle(toolName, toolArgs)
+                        "find_class", "find_usages", "get_file_structure" ->
+                            PsiToolHandler(project).handle(toolName, toolArgs)
+                        "get_inspections" ->
+                            InspectionsToolHandler(project).handle(toolName, toolArgs)
+                        "git_blame", "git_log", "git_diff" ->
+                            GitToolHandler(project).handle(toolName, toolArgs)
+                        "create_run_config", "update_run_config" ->
+                            RunConfigToolHandler(project).handle(toolName, toolArgs)
                         else -> DebugToolHandler(project).handle(toolName, toolArgs)
                     }
                     buildResult(id, buildJsonObject {
@@ -193,9 +247,10 @@ class McpServerServiceImpl : McpServerService, Disposable {
             }
         } catch (e: kotlinx.serialization.SerializationException) {
             buildError(JsonNull, -32700, "Invalid JSON")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             log.error("Error handling JSON-RPC request", e)
-            buildError(JsonNull, -32603, "Internal error")
+            buildError(JsonNull, -32603, "Internal error: ${e::class.simpleName}: ${e.message}")
         }
     }
 
