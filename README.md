@@ -4,6 +4,7 @@
 
 An IntelliJ IDEA plugin that exposes the built-in Java debugger, compiler, test runner, file/editor, PSI (Program Structure Interface), IDE inspections, and Git APIs as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets AI coding assistants like **Claude Code** set breakpoints, step through code, inspect variables, evaluate expressions, build the project, run tests, read files, navigate the codebase, semantically understand code structure, surface IDE warnings, and trace Git history — all without you touching the IDE manually.
 
+[![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/31497-debug-mcp.svg)](https://plugins.jetbrains.com/plugin/31497-debug-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2024.3+-blue.svg)](https://www.jetbrains.com/idea/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-2024--11--05-green.svg)](https://modelcontextprotocol.io)
@@ -68,8 +69,8 @@ In IntelliJ IDEA:
 
 ### Option 2 — JetBrains Marketplace
 
-Search for **"IntelliJ Debug MCP"** in **Settings → Plugins → Marketplace**, or install directly from the
-[JetBrains Plugin Marketplace](https://plugins.jetbrains.com/plugin/TODO).
+Search for **"Debug MCP"** in **Settings → Plugins → Marketplace**, or install directly from the
+[JetBrains Plugin Marketplace](https://plugins.jetbrains.com/plugin/31497-debug-mcp).
 
 ---
 
