@@ -94,7 +94,12 @@ Search for **"Debug MCP"** in **Settings → Plugins → Marketplace**, or insta
 
 ## How it works
 
-When you open any project in IntelliJ, the plugin starts a local HTTP server on **port 63820**. It exposes a JSON-RPC 2.0 endpoint at `http://localhost:63820/mcp` that implements the MCP `tools/list` and `tools/call` methods.
+When you open any project in IntelliJ, the plugin starts a local HTTP server on **port 63820** (if it is
+taken, the next free port in **63820–63825** is used; override with `-Dmcp.server.port`). It exposes a
+JSON-RPC 2.0 endpoint at `http://127.0.0.1:63820/mcp` that implements the MCP `tools/list` and
+`tools/call` methods.
+
+The server binds to **127.0.0.1 only** — it is not reachable from the network.
 
 The plugin talks directly to IntelliJ's `XDebugger` API — the same API the IDE uses internally — so breakpoints, step commands, and variable inspection all work exactly as they do in the UI.
 
@@ -126,13 +131,13 @@ Add the following to your global `~/.claude/CLAUDE.md` so Claude Code knows the 
 ### intellij-debug-mcp
 IntelliJ IDEA plugin that exposes the Java debugger as an MCP server.
 
-- **Endpoint**: `http://localhost:63820/mcp` (POST)
+- **Endpoint**: `http://127.0.0.1:63820/mcp` (POST); fallback ports 63820–63825, `-Dmcp.server.port`
 - **Protocol**: JSON-RPC 2.0 — no initialization needed, call `tools/call` directly
 
 Available tools: `set_breakpoint`, `remove_breakpoint`, `list_breakpoints`,
 `start_debug`, `stop_debug`, `get_session_state`, `get_stack_frames`,
 `get_variables`, `evaluate`, `step_over`, `step_into`, `step_out`,
-`select_frame`, `resume`, `pause`, `list_run_configs`, `create_run_config`, `update_run_config`,
+`select_frame`, `resume`, `pause`, `list_run_configs`, `create_run_config`, `update_run_config`, `delete_run_config`,
 `build_project`, `get_build_errors`,
 `run_tests`, `get_test_results`,
 `read_file`, `list_files`, `find_files`, `search_in_files`,
@@ -143,7 +148,7 @@ Available tools: `set_breakpoint`, `remove_breakpoint`, `list_breakpoints`,
 
 Example:
 ```bash
-curl -X POST http://localhost:63820/mcp \
+curl -X POST http://127.0.0.1:63820/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_run_configs","arguments":{}}}'
 ```
@@ -155,7 +160,7 @@ curl -X POST http://localhost:63820/mcp \
 2. Open any project in IntelliJ IDEA — the MCP server starts automatically
 3. Open `~/.claude/CLAUDE.md` (create it if it doesn't exist)
 4. Paste the block from the section above
-5. Verify the server is running: `curl http://localhost:63820/mcp` should return a 404 (GET is not supported, but a response means the server is up)
+5. Verify the server is running: `curl http://127.0.0.1:63820/health` should return `OK — active project: <name>, plugin 1.1.0, port 63820`
 6. Start a Claude Code session — it will now know about the debugger tools
 
 > **Tip:** The server only runs while IntelliJ is open with a project loaded. If Claude reports the tool is unavailable, check that IntelliJ is running.
@@ -403,7 +408,7 @@ Claude:
 Claude Code (curl / MCP client)
         │  JSON-RPC 2.0
         ▼
-http://localhost:63820/mcp          ← Ktor HTTP server (plugin, APP-level)
+http://127.0.0.1:63820/mcp          ← Ktor HTTP server (plugin, APP-level, loopback only)
         │
         ▼
   McpServerServiceImpl              ← routes tools/list, tools/call
@@ -465,7 +470,10 @@ The plugin uses **Ktor** for the HTTP layer and **kotlinx.serialization** for JS
 → Verify `list_breakpoints` shows `type=JavaLineBreakpointType`. If it shows a different type, the file may not be recognized as a Java source file in the current project.
 
 **Port 63820 is already in use**
-→ Another IntelliJ instance is running with the plugin loaded. Only one instance can use the port at a time.
+→ Another IntelliJ instance is running with the plugin loaded. Since 1.1.0 the plugin automatically
+falls back to the next free port (63820–63825), and each window gets its own server. Check
+`http://127.0.0.1:6382X/health` to see which project a port serves. To pin a port, add
+`-Dmcp.server.port=<port>` to the IDE's `idea64.vmoptions`.
 
 ---
 
