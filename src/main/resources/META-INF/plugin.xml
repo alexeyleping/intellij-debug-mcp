@@ -10,7 +10,7 @@
         </p>
         <p>
             The plugin starts a local MCP server (JSON-RPC 2.0 over HTTP on port 63820) that exposes
-            <b>37 tools</b> across 8 API groups:
+            <b>36 tools</b> across 8 API groups:
         </p>
         <ul>
             <li><b>Debugger</b> — set/remove breakpoints, start/stop sessions, step over/into/out,
@@ -24,7 +24,7 @@
             <li><b>Inspections</b> — surface IDE static-analysis warnings (errors / warnings / weak warnings)
                 for any open file</li>
             <li><b>Git</b> — git blame with line range, commit log, diffs by file or commit</li>
-            <li><b>Run Configurations</b> — list, create, and update Application / JUnit run configs</li>
+            <li><b>Run Configurations</b> — list, create, update, and delete Application / JUnit run configs</li>
         </ul>
         <p>
             Claude Code uses its built-in Bash tool to call the server via <code>curl</code> — no extra
@@ -49,6 +49,28 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.1.0 — IntelliJ IDEA 2026.2 support</h3>
+        <ul>
+            <li><b>Breakpoints now actually fire</b> — line breakpoints were created with
+                <code>properties = null</code>; since 2025.x <code>JavaLineBreakpointType.matchesPosition()</code>
+                throws <code>IllegalStateException: getProperties must not return null</code>, so the breakpoint
+                was listed but never hit. Properties are now created by the breakpoint type itself.</li>
+            <li><b>Relative paths</b> — <code>list_files "."</code>/<code>read_file</code>/<code>get_file_structure</code>
+                resolved relative paths against the IDE process working directory (the installation folder).
+                Paths are now resolved against the project root.</li>
+            <li><b>run_tests on Gradle projects</b> — no longer requires a pre-created run configuration:
+                falls back to <code>./gradlew :module:test --tests "..."</code> (or
+                <code>testDebugUnitTest</code> for Android modules) and parses JUnit XML results.</li>
+            <li><b>JSON-RPC</b> — error responses echo the request <code>id</code>; <code>serverInfo.version</code>
+                is read from the plugin descriptor instead of a hardcoded value.</li>
+            <li><b>Server</b> — listens on <code>127.0.0.1</code> only, falls back to the next free port if
+                63820 is taken, port configurable with <code>-Dmcp.server.port</code>.</li>
+            <li><b>Search</b> — <code>find_files</code>/<code>search_in_files</code> skip
+                <code>node_modules</code>, <code>build</code>, <code>target</code>, <code>dist</code>,
+                <code>out</code> and similar generated directories.</li>
+            <li><b>delete_run_config</b> — new tool to remove run configurations.</li>
+            <li>Build: Gradle 9 + IntelliJ Platform Gradle Plugin 2.20, compiled against IDEA 2026.2 (262).</li>
+        </ul>
         <h3>1.0.2 — Bug fixes</h3>
         <ul>
             <li><b>set_breakpoint</b> — fixed: now accepts relative paths (resolved against project root via VfsUtil)</li>
@@ -87,7 +109,7 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
-        <!-- APP-level service — один сервер на всю IDE, активный проект переключается динамически -->
+
         <applicationService
             serviceInterface="com.github.alexeyleping.intellijdebugmcp.server.McpServerService"
             serviceImplementation="com.github.alexeyleping.intellijdebugmcp.server.McpServerServiceImpl"/>

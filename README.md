@@ -6,8 +6,13 @@ An IntelliJ IDEA plugin that exposes the built-in Java debugger, compiler, test 
 
 [![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/31497-debug-mcp.svg)](https://plugins.jetbrains.com/plugin/31497-debug-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2024.3+-blue.svg)](https://www.jetbrains.com/idea/)
+[![IntelliJ Platform](https://img.shields.io/badge/IntelliJ-2026.2+-blue.svg)](https://www.jetbrains.com/idea/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-2024--11--05-green.svg)](https://modelcontextprotocol.io)
+
+> **This branch targets IntelliJ IDEA 2026.2.4 (build IU-262).**
+> It contains fixes and tools that rely on 2026.2 APIs — breakpoints created with type-provided
+> properties, run configurations with modules, `delete_run_config`, Gradle-based `run_tests`, and
+> Ktor 3.4.1 aligned with the platform. For older IDEs (2024.3 – 2025.x) use the `master` branch.
 
 ---
 
@@ -44,7 +49,7 @@ Debugging is one of the last things AI assistants couldn't do autonomously. They
 
 ## Requirements
 
-- **IntelliJ IDEA** 2024.3 or later (Community or Ultimate)
+- **IntelliJ IDEA** 2026.2 or later (Community or Ultimate)
 - **Java 21+** (JVM toolchain)
 - **Claude Code** CLI or any MCP-compatible client
 
@@ -60,7 +65,20 @@ cd intellij-debug-mcp
 ./gradlew buildPlugin
 ```
 
+The build downloads the target IntelliJ IDEA Community platform from JetBrains repositories, so it
+works on any machine without a local IDE installation (CI included).
+
 The plugin zip will be at `build/distributions/intellij-debug-mcp-*.zip`.
+
+To build against an IDE that is already installed locally (faster, and guarantees the same build as
+your IDE), pass its path explicitly:
+
+```bash
+./gradlew buildPlugin -PlocalIdePath=/path/to/IntelliJ-IDEA
+```
+
+Run the test suite with `./gradlew test`. The tests boot an in-process IDE, so they are memory hungry —
+the build caps the test JVM at 2 GB. Prefer running them with IntelliJ closed.
 
 In IntelliJ IDEA:
 1. **Settings → Plugins → ⚙️ → Install Plugin from Disk...**
@@ -169,7 +187,7 @@ curl -X POST http://localhost:63820/mcp \
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `run_tests` | Run tests for a class (or single method) using an existing JUnit/TestNG run config | `className` (string, required), `methodName` (string, optional) |
+| `run_tests` | Run tests for a class (or single method). Uses a matching JUnit/TestNG run config if one exists, otherwise falls back to Gradle (`./gradlew :module:test --tests "..."`, `testDebugUnitTest` for Android) and parses JUnit XML | `className` (string, required), `methodName` (string, optional) |
 | `get_test_results` | Return results of the last `run_tests` call: status per test, duration, error message and stack trace for failures | — |
 
 ### Build
@@ -207,6 +225,7 @@ curl -X POST http://localhost:63820/mcp \
 |------|-------------|------------|
 | `list_run_configs` | List all run configurations in the project | — |
 | `create_run_config` | Create a new run configuration. `type`: `application` (default) or `junit`. | `name` (string, required), `type` (string, optional), `mainClass` (string, optional), `testClass` (string, optional), `vmOptions` (string, optional), `programArgs` (string, optional), `workingDir` (string, optional) |
+| `delete_run_config` | Delete a run configuration by name | `name` (string, required) |
 | `update_run_config` | Update an existing run configuration by name. Only provided fields are changed. | `name` (string, required), `mainClass` / `testClass` / `vmOptions` / `programArgs` / `workingDir` (all optional) |
 | `start_debug` | Start a debug session by run config name | `name` (string) |
 | `stop_debug` | Stop the current debug session | — |

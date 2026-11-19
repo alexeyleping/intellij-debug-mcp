@@ -1,8 +1,13 @@
 ROADMAP.md
 .gradle/
-.idea/
+.idea/*
+!.idea/codeStyles/
 .intellijPlatform/
 /build/
 *.class
 *.jar
+!/gradle/wrapper/gradle-wrapper.jar
 out/
+local.properties
+
+*.bak

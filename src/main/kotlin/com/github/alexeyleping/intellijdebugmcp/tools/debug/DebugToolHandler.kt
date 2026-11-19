@@ -1,14 +1,15 @@
 package com.github.alexeyleping.intellijdebugmcp.tools.debug
 
-import com.intellij.execution.ProgramRunnerUtil
 import com.intellij.execution.RunManager
 import com.intellij.execution.executors.DefaultDebugExecutor
+import com.intellij.execution.runners.ExecutionEnvironmentBuilder
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VfsUtil
-import com.intellij.openapi.vfs.VirtualFileManager
+import com.github.alexeyleping.intellijdebugmcp.tools.PathUtil
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.breakpoints.XBreakpointManager
@@ -50,10 +51,13 @@ class DebugToolHandler(private val project: Project) {
         manager: XBreakpointManager,
         type: XLineBreakpointType<*>,
         url: String,
-        line: Int
+        line: Int,
+        file: VirtualFile
     ) {
-        val t = type as XLineBreakpointType<XBreakpointProperties<Any>>
-        manager.addLineBreakpoint(t, url, line, null)
+
+        val t = type as XLineBreakpointType<XBreakpointProperties<*>>
+        val properties = t.createBreakpointProperties(file, line)
+        manager.addLineBreakpoint(t, url, line, properties)
     }
 
     fun handle(tool: String, args: JsonObject): String {
@@ -112,17 +116,19 @@ class DebugToolHandler(private val project: Project) {
     private fun controlExecution(action: (com.intellij.xdebugger.XDebugSession) -> Unit): String {
         val session = XDebuggerManager.getInstance(project).currentSession
             ?: return "No active debug session"
+        if (!session.isPaused) return "Session is not paused — nothing to resume or step"
         ApplicationManager.getApplication().invokeLater { action(session) }
         return "OK"
     }
 
-    private fun listBreakpoints(): String {
+    private fun listBreakpoints(): String = ReadAction.compute<String, Exception> {
         val manager = XDebuggerManager.getInstance(project).breakpointManager
         val breakpoints = manager.allBreakpoints
-        if (breakpoints.isEmpty()) return "No breakpoints set"
-        return breakpoints.joinToString("\n") { bp ->
+        if (breakpoints.isEmpty()) return@compute "No breakpoints set"
+        breakpoints.joinToString("\n") { bp ->
             when (bp) {
-                is XLineBreakpoint<*> -> "${bp.presentableFilePath}:${bp.line + 1} [${if (bp.isEnabled) "enabled" else "disabled"}] type=${bp.type.javaClass.simpleName}"
+                is XLineBreakpoint<*> -> "${bp.presentableFilePath}:${bp.line + 1} " +
+                    "[${if (bp.isEnabled) "enabled" else "disabled"}] type=${bp.type.javaClass.simpleName}"
                 else -> bp.toString()
             }
         }
@@ -240,41 +246,52 @@ class DebugToolHandler(private val project: Project) {
     }
 
     private fun setBreakpoint(filePath: String, line: Int): String {
-        val absPath = if (filePath.startsWith("/")) filePath else "${project.basePath}/$filePath"
-        val url = VfsUtil.pathToUrl(absPath)
-        val vFile = VirtualFileManager.getInstance().findFileByUrl(url)
-            ?: return "File not found: $filePath"
-
-        val line0 = line - 1
-        val type = BREAKPOINT_TYPE_EP.extensionList
-            .filterIsInstance<XLineBreakpointType<*>>()
-            .firstOrNull { it.canPutAt(vFile, line0, project) }
-            ?: return "No breakpoint type supports $filePath:$line"
+        val prepared = ReadAction.compute<PreparedBreakpoint?, Exception> {
+            val vFile = PathUtil.resolve(project, filePath) ?: return@compute null
+            val line0 = line - 1
+            val type = BREAKPOINT_TYPE_EP.extensionList
+                .filterIsInstance<XLineBreakpointType<*>>()
+                .firstOrNull { it.canPutAt(vFile, line0, project) }
+                ?: return@compute null
+            PreparedBreakpoint(vFile, type, line0)
+        } ?: return "File not found or no breakpoint type supports $filePath:$line"
 
         val breakpointManager = XDebuggerManager.getInstance(project).breakpointManager
-        val existing = breakpointManager.allBreakpoints
-            .filterIsInstance<XLineBreakpoint<*>>()
-            .any { it.fileUrl == url && it.line == line0 }
+        val existing = ReadAction.compute<Boolean, Exception> {
+            breakpointManager.allBreakpoints
+                .filterIsInstance<XLineBreakpoint<*>>()
+                .any { it.fileUrl == prepared.file.url && it.line == prepared.line0 }
+        }
         if (existing) return "Breakpoint already exists at $filePath:$line"
 
         ApplicationManager.getApplication().invokeAndWait {
             ApplicationManager.getApplication().runWriteAction {
-                addLineBreakpointUnchecked(breakpointManager, type, url, line0)
+                addLineBreakpointUnchecked(
+                    breakpointManager, prepared.type, prepared.file.url, prepared.line0, prepared.file
+                )
             }
         }
-        return "Breakpoint set at $filePath:$line [type=${type.javaClass.simpleName}]"
+        return "Breakpoint set at $filePath:$line [type=${prepared.type.javaClass.simpleName}]"
     }
 
+    private class PreparedBreakpoint(
+        val file: VirtualFile,
+        val type: XLineBreakpointType<*>,
+        val line0: Int
+    )
+
     private fun removeBreakpoint(filePath: String, line: Int): String {
-        val absPath = if (filePath.startsWith("/")) filePath else "${project.basePath}/$filePath"
-        val url = VfsUtil.pathToUrl(absPath)
+        val vFile = ReadAction.compute<VirtualFile?, Exception> { PathUtil.resolve(project, filePath) }
+            ?: return "File not found: $filePath"
+        val url = vFile.url
         val line0 = line - 1
 
         val breakpointManager = XDebuggerManager.getInstance(project).breakpointManager
-        val bp = breakpointManager.allBreakpoints
-            .filterIsInstance<XLineBreakpoint<*>>()
-            .firstOrNull { it.fileUrl == url && it.line == line0 }
-            ?: return "No breakpoint at $filePath:$line"
+        val bp = ReadAction.compute<XLineBreakpoint<*>?, Exception> {
+            breakpointManager.allBreakpoints
+                .filterIsInstance<XLineBreakpoint<*>>()
+                .firstOrNull { it.fileUrl == url && it.line == line0 }
+        } ?: return "No breakpoint at $filePath:$line"
 
         ApplicationManager.getApplication().invokeAndWait {
             ApplicationManager.getApplication().runWriteAction {
@@ -332,11 +349,18 @@ class DebugToolHandler(private val project: Project) {
         val settings = RunManager.getInstance(project).allSettings
             .find { it.name == configName }
             ?: return "Run configuration not found: $configName. Use list_run_configs to see available configurations."
-        val executor = DefaultDebugExecutor.getDebugExecutorInstance()
-        ApplicationManager.getApplication().invokeLater {
-            ProgramRunnerUtil.executeConfiguration(settings, executor)
+
+        var result = "Starting debug session: ${settings.name}"
+        ApplicationManager.getApplication().invokeAndWait {
+            try {
+                val executor = DefaultDebugExecutor.getDebugExecutorInstance()
+                val environment = ExecutionEnvironmentBuilder.create(executor, settings).build()
+                environment.runner.execute(environment)
+            } catch (e: Exception) {
+                result = "Error starting debug session: ${e.javaClass.simpleName}: ${e.message}"
+            }
         }
-        return "Starting debug session: ${settings.name}"
+        return result
     }
 
     private fun makeValueNode(

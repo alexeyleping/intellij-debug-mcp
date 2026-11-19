@@ -8,31 +8,49 @@ import com.github.alexeyleping.intellijdebugmcp.tools.inspections.InspectionsToo
 import com.github.alexeyleping.intellijdebugmcp.tools.psi.PsiToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.runconfig.RunConfigToolHandler
 import com.github.alexeyleping.intellijdebugmcp.tools.tests.TestToolHandler
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import io.ktor.server.application.*
-import io.ktor.server.engine.*
-import io.ktor.server.netty.*
-import io.ktor.server.request.*
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
+import io.ktor.server.application.call
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
+import io.ktor.server.request.receiveText
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import io.ktor.server.routing.routing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.concurrent.atomic.AtomicReference
 
 @Service(Service.Level.APP)
 class McpServerServiceImpl : McpServerService, Disposable {
 
     private val log = logger<McpServerServiceImpl>()
-    private val port = 63820
-    private var server: ApplicationEngine? = null
+    private val basePort: Int = System.getProperty("mcp.server.port")?.toIntOrNull() ?: DEFAULT_PORT
+    private var port: Int = basePort
+    private var stopServer: (() -> Unit)? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private val activeProject = AtomicReference<Project?>(null)
+
+    private val pluginVersion: String
+        get() = PluginManagerCore.getPlugin(PluginId.getId("com.github.alexeyleping.intellij-debug-mcp"))?.version
+            ?: "unknown"
 
     private fun resolveProject(): Project? {
         val current = activeProject.get()
@@ -53,10 +71,34 @@ class McpServerServiceImpl : McpServerService, Disposable {
     }
 
     override fun start() {
-        if (server != null) return
-        log.info("Starting MCP server on port $port")
+        if (stopServer != null) return
+        if (ApplicationManager.getApplication().isUnitTestMode) {
+            log.info("Unit test mode — MCP server is not started")
+            return
+        }
+        log.info("Starting MCP server (preferred port $basePort)")
 
-        server = embeddedServer(Netty, port = port) {
+        scope.launch {
+
+            for (candidate in basePort..(basePort + 5)) {
+                val engine = createServer(candidate)
+                try {
+                    engine.start(wait = false)
+                    stopServer = { engine.stop(1000, 3000) }
+                    port = candidate
+                    log.info("MCP server started on ${BIND_HOST}:$candidate")
+                    return@launch
+                } catch (e: Exception) {
+                    try { engine.stop(0, 0) } catch (_: Exception) {}
+                    log.warn("Port $candidate is not available: ${e.message}")
+                }
+            }
+            log.error("Could not start MCP server: ports $basePort..${basePort + 5} are busy")
+        }
+    }
+
+    private fun createServer(listenPort: Int) =
+        embeddedServer(Netty, host = BIND_HOST, port = listenPort) {
             routing {
                 post("/mcp") {
                     val body = call.receiveText()
@@ -65,39 +107,35 @@ class McpServerServiceImpl : McpServerService, Disposable {
                 }
                 get("/health") {
                     val project = resolveProject()
-                    call.respondText("OK — active project: ${project?.name ?: "none"}")
+                    call.respondText("OK — active project: ${project?.name ?: "none"}, plugin $pluginVersion, port ${this@McpServerServiceImpl.port}")
                 }
             }
         }
 
-        scope.launch {
-            server?.start(wait = false)
-            log.info("MCP server started on port $port")
-        }
-    }
-
     override fun stop() {
-        server?.stop(1000, 3000)
-        server = null
+        stopServer?.invoke()
+        stopServer = null
         log.info("MCP server stopped")
     }
 
-    override fun isRunning(): Boolean = server != null
+    override fun isRunning(): Boolean = stopServer != null
 
     override fun getPort(): Int = port
 
-    private fun handleJsonRpc(body: String): String {
+    internal fun handleJsonRpc(body: String): String {
+        var requestId: JsonElement? = null
         return try {
             val request = Json.parseToJsonElement(body).jsonObject
             val method = request["method"]?.jsonPrimitive?.content ?: ""
             val id = request["id"]
+            requestId = id
 
             when (method) {
                 "initialize" -> buildResult(id, buildJsonObject {
                     put("protocolVersion", "2024-11-05")
                     put("serverInfo", buildJsonObject {
                         put("name", "intellij-debug-mcp")
-                        put("version", "0.9.0")
+                        put("version", pluginVersion)
                     })
                     put("capabilities", buildJsonObject {
                         put("tools", buildJsonObject {})
@@ -106,7 +144,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
 
                 "tools/list" -> buildResult(id, buildJsonObject {
                     put("tools", buildJsonArray {
-                        // Debug tools
+
                         add(toolDef("set_breakpoint", "Set a breakpoint at the given file and line",
                             mapOf("file" to "string", "line" to "integer")))
                         add(toolDef("remove_breakpoint", "Remove a breakpoint at the given file and line",
@@ -128,7 +166,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
                         add(toolDef("list_run_configs", "List all run configurations in the project", emptyMap()))
                         add(toolDef("start_debug", "Start a debug session for the given run configuration name",
                             mapOf("name" to "string")))
-                        // Test tools
+
                         add(toolDef("run_tests",
                             "Run tests for the given class (and optionally a single method). Uses existing JUnit/TestNG run config.",
                             mapOf("className" to "string"),
@@ -136,14 +174,14 @@ class McpServerServiceImpl : McpServerService, Disposable {
                         add(toolDef("get_test_results",
                             "Return results of the last run_tests call",
                             emptyMap()))
-                        // Build tools
+
                         add(toolDef("build_project",
                             "Build the project (incremental Make). Pass rebuild=true for a full Rebuild.",
                             emptyMap(), mapOf("rebuild" to "boolean")))
                         add(toolDef("get_build_errors",
                             "Return errors and warnings from the last build_project call",
                             emptyMap()))
-                        // File/Editor tools
+
                         add(toolDef("read_file",
                             "Read file contents by path (absolute or relative to project root). Supports offset and limit for pagination.",
                             mapOf("path" to "string"),
@@ -165,7 +203,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             "Open a file in the editor. Optionally navigate to a specific line.",
                             mapOf("path" to "string"),
                             mapOf("line" to "integer")))
-                        // PSI tools
+
                         add(toolDef("find_class",
                             "Find a class by short name or fully-qualified name. Returns file, line, fields and methods.",
                             mapOf("name" to "string")))
@@ -176,14 +214,14 @@ class McpServerServiceImpl : McpServerService, Disposable {
                         add(toolDef("get_file_structure",
                             "Get structure of a file: all classes with their fields and methods (with signatures and line numbers).",
                             mapOf("path" to "string")))
-                        // Inspections tools
+
                         add(toolDef("get_inspections",
                             "Return static analysis problems from the IDE daemon for open files or a specific file. " +
                                 "Results reflect the current IDE analysis — open the file in the editor before calling. " +
                                 "Filter by severity: ERROR, WARNING, WEAK_WARNING.",
                             emptyMap(),
                             mapOf("path" to "string", "severity" to "string")))
-                        // Git tools
+
                         add(toolDef("git_blame",
                             "Show who last modified each line of a file (git blame). Optionally narrow to a line range with startLine/endLine.",
                             mapOf("path" to "string"),
@@ -196,7 +234,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             "Show diff. Optionally filter by file path and/or a commit/range (e.g. 'HEAD~1', 'abc123..HEAD').",
                             emptyMap(),
                             mapOf("path" to "string", "commit" to "string")))
-                        // Run Config tools
+
                         add(toolDef("create_run_config",
                             "Create a new run configuration. type: 'application' (default) or 'junit'.",
                             mapOf("name" to "string"),
@@ -207,11 +245,16 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             mapOf("name" to "string"),
                             mapOf("mainClass" to "string", "testClass" to "string",
                                   "vmOptions" to "string", "programArgs" to "string", "workingDir" to "string")))
+                        add(toolDef("delete_run_config",
+                            "Delete a run configuration by name.",
+                            mapOf("name" to "string")))
                     })
                 })
 
                 "tools/call" -> {
-                    val params = request["params"]?.jsonObject
+
+                    val params = request["params"] as? JsonObject
+                        ?: return buildError(id, -32602, "Invalid params: expected object")
                     val toolName = params?.get("name")?.jsonPrimitive?.content ?: ""
                     val toolArgs = params?.get("arguments")?.jsonObject ?: JsonObject(emptyMap())
                     val project = resolveProject()
@@ -229,7 +272,7 @@ class McpServerServiceImpl : McpServerService, Disposable {
                             InspectionsToolHandler(project).handle(toolName, toolArgs)
                         "git_blame", "git_log", "git_diff" ->
                             GitToolHandler(project).handle(toolName, toolArgs)
-                        "create_run_config", "update_run_config" ->
+                        "create_run_config", "update_run_config", "delete_run_config" ->
                             RunConfigToolHandler(project).handle(toolName, toolArgs)
                         else -> DebugToolHandler(project).handle(toolName, toolArgs)
                     }
@@ -246,11 +289,11 @@ class McpServerServiceImpl : McpServerService, Disposable {
                 else -> buildError(id, -32601, "Method not found: $method")
             }
         } catch (e: kotlinx.serialization.SerializationException) {
-            buildError(JsonNull, -32700, "Invalid JSON")
+            buildError(requestId, -32700, "Invalid JSON")
         } catch (e: Throwable) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             log.error("Error handling JSON-RPC request", e)
-            buildError(JsonNull, -32603, "Internal error: ${e::class.simpleName}: ${e.message}")
+            buildError(requestId, -32603, "Internal error: ${e::class.simpleName}: ${e.message}")
         }
     }
 
@@ -295,5 +338,11 @@ class McpServerServiceImpl : McpServerService, Disposable {
 
     override fun dispose() {
         stop()
+    }
+
+    private companion object {
+        const val DEFAULT_PORT = 63820
+
+        const val BIND_HOST = "127.0.0.1"
     }
 }

@@ -3,6 +3,8 @@ package com.github.alexeyleping.intellijdebugmcp.tools.runconfig
 import com.intellij.execution.RunManager
 import com.intellij.execution.application.ApplicationConfiguration
 import com.intellij.execution.application.ApplicationConfigurationType
+import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.execution.junit.JUnitConfiguration
 import com.intellij.execution.junit.JUnitConfigurationType
 import com.intellij.openapi.application.ApplicationManager
@@ -24,6 +26,11 @@ class RunConfigToolHandler(private val project: Project) {
                 ?: return "Missing required parameter: name"
             updateRunConfig(name, args)
         }
+        "delete_run_config" -> {
+            val name = args["name"]?.jsonPrimitive?.content
+                ?: return "Missing required parameter: name"
+            deleteRunConfig(name)
+        }
         else -> "Unknown tool: $tool"
     }
 
@@ -37,6 +44,7 @@ class RunConfigToolHandler(private val project: Project) {
                     val factory = JUnitConfigurationType.getInstance().configurationFactories.first()
                     val s = runManager.createConfiguration(name, factory)
                     val cfg = s.configuration as JUnitConfiguration
+                    cfg.setModule(resolveModule())
                     args["testClass"]?.jsonPrimitive?.content?.let {
                         cfg.persistentData.MAIN_CLASS_NAME = it
                         cfg.persistentData.TEST_OBJECT = JUnitConfiguration.TEST_CLASS
@@ -48,6 +56,7 @@ class RunConfigToolHandler(private val project: Project) {
                     val factory = ApplicationConfigurationType.getInstance().configurationFactories.first()
                     val s = runManager.createConfiguration(name, factory)
                     val cfg = s.configuration as ApplicationConfiguration
+                    cfg.setModule(resolveModule())
                     args["mainClass"]?.jsonPrimitive?.content?.let { cfg.mainClassName = it }
                     args["vmOptions"]?.jsonPrimitive?.content?.let { cfg.vmParameters = it }
                     args["programArgs"]?.jsonPrimitive?.content?.let { cfg.programParameters = it }
@@ -62,6 +71,26 @@ class RunConfigToolHandler(private val project: Project) {
             runManager.addConfiguration(settings)
             runManager.selectedConfiguration = settings
             result = "Created run configuration '$name' (type: $type)"
+        }
+        return result
+    }
+
+    private fun resolveModule(): Module? {
+        val modules = ModuleManager.getInstance(project).modules
+        return modules.firstOrNull { it.name == project.name } ?: modules.firstOrNull()
+    }
+
+    private fun deleteRunConfig(name: String): String {
+        var result = ""
+        ApplicationManager.getApplication().invokeAndWait {
+            val runManager = RunManager.getInstance(project)
+            val settings = runManager.allSettings.find { it.name == name }
+            if (settings == null) {
+                result = "Run configuration not found: $name"
+                return@invokeAndWait
+            }
+            runManager.removeConfiguration(settings)
+            result = "Deleted run configuration '$name'"
         }
         return result
     }

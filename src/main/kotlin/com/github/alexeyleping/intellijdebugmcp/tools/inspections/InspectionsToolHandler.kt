@@ -1,5 +1,6 @@
 package com.github.alexeyleping.intellijdebugmcp.tools.inspections
 
+import com.github.alexeyleping.intellijdebugmcp.tools.PathUtil
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ReadAction
@@ -8,7 +9,6 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -32,8 +32,7 @@ class InspectionsToolHandler(private val project: Project) {
             val base = project.basePath ?: ""
 
             val files = if (path != null) {
-                val vf = LocalFileSystem.getInstance().findFileByPath(path)
-                    ?: LocalFileSystem.getInstance().findFileByPath("$base/$path")
+                val vf = PathUtil.resolve(project, path)
                     ?: return@compute "File not found: $path"
                 listOf(vf)
             } else {

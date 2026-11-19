@@ -1,11 +1,15 @@
 package com.github.alexeyleping.intellijdebugmcp.tools.psi
 
+import com.github.alexeyleping.intellijdebugmcp.tools.PathUtil
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.*
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiManager
+import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.psi.search.searches.ReferencesSearch
@@ -129,10 +133,7 @@ class PsiToolHandler(private val project: Project) {
 
     private fun getFileStructure(path: String): String {
         return ReadAction.compute<String, Exception> {
-            val base = project.basePath ?: ""
-            val vf = LocalFileSystem.getInstance().findFileByPath(path)
-                ?: LocalFileSystem.getInstance().findFileByPath("$base/$path")
-                ?: return@compute "File not found: $path"
+            val vf = PathUtil.resolve(project, path) ?: return@compute "File not found: $path"
 
             val psiFile = PsiManager.getInstance(project).findFile(vf)
                 ?: return@compute "Cannot parse file: $path"

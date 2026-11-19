@@ -1,5 +1,6 @@
 package com.github.alexeyleping.intellijdebugmcp.tools.files
 
+import com.github.alexeyleping.intellijdebugmcp.tools.PathUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -42,11 +43,7 @@ class FileToolHandler(private val project: Project) {
         }
     }
 
-    private fun resolveVirtualFile(path: String): VirtualFile? {
-        LocalFileSystem.getInstance().findFileByPath(path)?.let { return it }
-        val base = project.basePath ?: return null
-        return LocalFileSystem.getInstance().findFileByPath("$base/$path")
-    }
+    private fun resolveVirtualFile(path: String): VirtualFile? = PathUtil.resolve(project, path)
 
     private fun readFile(path: String, offset: Int, limit: Int): String {
         val vf = resolveVirtualFile(path) ?: return "File not found: $path"
@@ -103,7 +100,7 @@ class FileToolHandler(private val project: Project) {
 
     private fun walkFiles(dir: VirtualFile, basePath: String, regex: Regex, matches: MutableList<String>, maxResults: Int = 100) {
         if (matches.size >= maxResults) return
-        if (dir.name.startsWith(".") && dir.isDirectory) return
+        if (dir.isDirectory && shouldSkipDir(dir.name)) return
         for (child in dir.children) {
             if (matches.size >= maxResults) return
             if (child.isDirectory) {
@@ -130,7 +127,7 @@ class FileToolHandler(private val project: Project) {
 
     private fun searchInDir(dir: VirtualFile, basePath: String, query: String, fileRegex: Regex?, results: MutableList<String>, maxResults: Int = 50) {
         if (results.size >= maxResults) return
-        if (dir.name.startsWith(".") && dir.isDirectory) return
+        if (dir.isDirectory && shouldSkipDir(dir.name)) return
         for (child in dir.children) {
             if (results.size >= maxResults) return
             if (child.isDirectory) {
@@ -185,6 +182,12 @@ class FileToolHandler(private val project: Project) {
         }
         return result
     }
+
+    private fun shouldSkipDir(name: String): Boolean =
+        name.startsWith(".") || name in setOf(
+            "node_modules", "build", "out", "target", "bin", "obj",
+            "dist", "coverage", ".gradle", ".idea", "vendor"
+        )
 
     private fun globToRegex(pattern: String): Regex {
         val sb = StringBuilder()
